@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Proxy service: forwards all requests to the healthy Render IP (216.24.57.15)."""
+"""Proxy service: forwards all requests to the healthy cargo-abantour service.
+Forces the Host header so Render routes to the correct app."""
 
-import os, sys
+import os
 from flask import Flask, request, Response
 import requests as rq
 
-TARGET = "http://216.24.57.15"
+TARGET_HOST = os.environ.get("TARGET_HOST", "cargo-abantour.onrender.com")
+TARGET = os.environ.get("TARGET_URL", f"https://{TARGET_HOST}")
 
 app = Flask(__name__)
 
@@ -15,10 +17,13 @@ def proxy(path):
     url = f"{TARGET}/{path}"
     if request.query_string:
         url += "?" + request.query_string.decode("utf-8")
-    
-    # Forward the request
-    headers = {k: v for k, v in request.headers if k.lower() not in ("host", "content-length", "transfer-encoding", "connection")}
-    
+
+    # Force Host header to the target site so Render routes correctly,
+    # and drop hop-by-hop headers.
+    headers = {k: v for k, v in request.headers.items()
+               if k.lower() not in ("host", "content-length", "transfer-encoding", "connection", "accept-encoding")}
+    headers["Host"] = TARGET_HOST
+
     try:
         resp = rq.request(
             method=request.method,
@@ -26,8 +31,9 @@ def proxy(path):
             headers=headers,
             data=request.get_data(),
             cookies=request.cookies,
-            allow_redirects=False,
-            timeout=30
+            allow_redirects=True,
+            timeout=30,
+            verify=True
         )
         excluded = ["content-encoding", "content-length", "transfer-encoding", "connection"]
         resp_headers = [(k, v) for k, v in resp.headers.items() if k.lower() not in excluded]
